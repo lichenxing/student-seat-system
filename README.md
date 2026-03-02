@@ -46,53 +46,84 @@
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 方式一：本地开发运行
 
 ```bash
 cd seat-system
 npm install
+npm run init-db
+npm start
+# 访问 http://localhost:3000
 ```
 
-### 2. 配置数据库
+### 方式二：域名部署（生产环境）
 
-复制配置文件并修改数据库连接信息：
+系统已配置支持域名访问，示例域名：https://chenxing.live
+
+#### 1. 自动部署（推荐）
 
 ```bash
-cp .env.example .env
+# 在服务器上执行
+sudo bash deploy/deploy.sh
 ```
 
-编辑 `.env` 文件：
+#### 2. 手动部署
+
+```bash
+# 1. 安装依赖
+sudo apt-get update
+sudo apt-get install -y nginx nodejs mysql-server
+
+# 2. 配置 Nginx
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/chenxing.live
+sudo ln -s /etc/nginx/sites-available/chenxing.live /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+
+# 3. 配置 SSL 证书（使用 Let's Encrypt）
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d chenxing.live -d www.chenxing.live
+
+# 4. 初始化数据库
+cd seat-system
+npm install
+npm run init-db
+
+# 5. 创建系统服务
+sudo cp deploy/seat-system.service /etc/systemd/system/
+sudo systemctl enable seat-system
+sudo systemctl start seat-system
+```
+
+#### 3. 配置域名
+
+编辑 `.env` 文件配置域名：
 
 ```env
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=seat_arrangement
-DB_PORT=3306
+# 服务器配置
 PORT=3000
+NODE_ENV=production
+
+# 域名配置
+DOMAIN=https://chenxing.live
+ALLOWED_ORIGINS=https://chenxing.live,http://chenxing.live
 ```
 
-### 3. 初始化数据库
+### 常用命令
 
 ```bash
-npm run init-db
+# 查看服务状态
+sudo systemctl status seat-system
+
+# 查看日志
+sudo journalctl -u seat-system -f
+
+# 重启服务
+sudo systemctl restart seat-system
+
+# 重启 Nginx
+sudo systemctl restart nginx
 ```
-
-### 4. 启动服务
-
-```bash
-npm start
-```
-
-开发模式（自动重启）：
-
-```bash
-npm run dev
-```
-
-### 5. 访问系统
-
-打开浏览器访问：http://localhost:3000
 
 ## 📁 项目结构
 

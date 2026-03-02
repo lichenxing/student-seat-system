@@ -14,10 +14,38 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 中间件
-app.use(cors());
+// CORS 配置 - 支持域名访问
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',') 
+    : ['http://localhost:3000', 'https://chenxing.live', 'http://chenxing.live'];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // 允许无来源的请求（如移动应用或 curl）
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.warn(`CORS 拒绝访问: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 app.use(express.static('public'));
+
+// 健康检查端点
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        domain: process.env.DOMAIN || 'localhost'
+    });
+});
 
 // MySQL 连接池
 const pool = mysql.createPool({
