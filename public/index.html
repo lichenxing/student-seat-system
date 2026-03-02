@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生智能排座系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航 -->
+        <header class="header">
+            <div class="logo">🪑 学生智能排座系统</div>
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-tab="arrange">座位排布</button>
+                <button class="nav-tab" data-tab="students">学生管理</button>
+                <button class="nav-tab" data-tab="plans">历史方案</button>
+            </nav>
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="app.showImportModal()">📥 导入</button>
+                <button class="btn btn-secondary" onclick="app.exportData()">📤 导出</button>
+                <button class="btn btn-primary" onclick="app.savePlan()">💾 保存方案</button>
+            </div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 座位排布页面 -->
+            <div class="tab-panel active" id="arrange-panel">
+                <div class="arrange-container">
+                    <!-- 左侧控制面板 -->
+                    <aside class="control-panel">
+                        <!-- 智能排座 -->
+                        <div class="panel">
+                            <h3 class="panel-title">🤖 智能排座</h3>
+                            <div class="arrange-options">
+                                <label class="radio-label">
+                                    <input type="radio" name="arrangeType" value="random" checked>
+                                    <span>🎲 随机排座</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="arrangeType" value="score">
+                                    <span>📊 按成绩排座</span>
+                                    <small>成绩好的优先前排</small>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="arrangeType" value="gender">
+                                    <span>⚥ 男女交替</span>
+                                    <small>男女生穿插排列</small>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="arrangeType" value="height">
+                                    <span>📏 按身高排座</span>
+                                    <small>矮的在前，高的在后</small>
+                                </label>
+                            </div>
+                            <button class="btn btn-primary btn-block" onclick="app.smartArrange()">
+                                ✨ 一键智能排座
+                            </button>
+                            <button class="btn btn-block mt-2" onclick="app.clearSeats()">
+                                🗑️ 清空座位
+                            </button>
+                        </div>
+
+                        <!-- 教室设置 -->
+                        <div class="panel mt-3">
+                            <h3 class="panel-title">⚙️ 教室设置</h3>
+                            <div class="form-group">
+                                <label>行数</label>
+                                <input type="number" id="rowCount" value="7" min="4" max="10">
+                            </div>
+                            <div class="form-group">
+                                <label>列数</label>
+                                <input type="number" id="colCount" value="8" min="4" max="10">
+                            </div>
+                            <button class="btn btn-block" onclick="app.updateLayout()">应用设置</button>
+                        </div>
+
+                        <!-- 统计信息 -->
+                        <div class="panel mt-3">
+                            <h3 class="panel-title">📊 统计</h3>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <span class="stat-value" id="stat-total">0</span>
+                                    <span class="stat-label">总人数</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-value" id="stat-assigned">0</span>
+                                    <span class="stat-label">已排座</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-value" id="stat-unassigned">0</span>
+                                    <span class="stat-label">未排座</span>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <!-- 中间座位区 -->
+                    <div class="seat-area">
+                        <div class="podium">📋 讲台</div>
+                        <div class="seat-grid" id="seatGrid"></div>
+                        <div class="seat-legend">
+                            <span class="legend-item"><span class="legend-color male"></span>男生</span>
+                            <span class="legend-item"><span class="legend-color female"></span>女生</span>
+                            <span class="legend-item"><span class="legend-color empty"></span>空座位</span>
+                        </div>
+                    </div>
+
+                    <!-- 右侧学生池 -->
+                    <aside class="student-panel">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h3 class="panel-title">👥 学生池</h3>
+                                <span class="badge" id="pool-count">0</span>
+                            </div>
+                            <div class="search-box">
+                                <input type="text" id="studentSearch" placeholder="搜索学生..." oninput="app.filterStudents()">
+                            </div>
+                            <div class="student-pool" id="studentPool">
+                                <!-- 学生卡片将在这里渲染 -->
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+
+            <!-- 学生管理页面 -->
+            <div class="tab-panel" id="students-panel">
+                <div class="students-container">
+                    <div class="toolbar">
+                        <button class="btn btn-primary" onclick="app.showStudentModal()">+ 添加学生</button>
+                        <div class="search-box">
+                            <input type="text" id="studentTableSearch" placeholder="搜索学生..." oninput="app.filterStudentTable()">
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="studentTable">
+                            <thead>
+                                <tr>
+                                    <th>学号</th>
+                                    <th>姓名</th>
+                                    <th>性别</th>
+                                    <th>身高</th>
+                                    <th>成绩</th>
+                                    <th>标签</th>
+                                    <th>备注</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 历史方案页面 -->
+            <div class="tab-panel" id="plans-panel">
+                <div class="plans-container">
+                    <div class="toolbar">
+                        <h2>已保存的方案</h2>
+                    </div>
+                    <div class="plans-grid" id="plansGrid">
+                        <!-- 方案卡片将在这里渲染 -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 学生编辑模态框 -->
+    <div class="modal" id="studentModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="studentModalTitle">添加学生</h3>
+                <button class="close-btn" onclick="app.closeModal('studentModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="studentId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>姓名 *</label>
+                        <input type="text" id="studentName" placeholder="输入姓名">
+                    </div>
+                    <div class="form-group">
+                        <label>学号</label>
+                        <input type="text" id="studentNo" placeholder="输入学号">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>性别</label>
+                        <select id="studentGender">
+                            <option value="">请选择</option>
+                            <option value="男">男</option>
+                            <option value="女">女</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>身高 (cm)</label>
+                        <input type="number" id="studentHeight" placeholder="如: 165">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>成绩</label>
+                    <input type="number" id="studentScore" placeholder="如: 85.5" step="0.1" min="0" max="100">
+                </div>
+                <div class="form-group">
+                    <label>标签</label>
+                    <div class="tag-selector">
+                        <label><input type="checkbox" value="naughty" class="tag-checkbox"> 😈 调皮</label>
+                        <label><input type="checkbox" value="vision" class="tag-checkbox"> 👓 近视</label>
+                        <label><input type="checkbox" value="hearing" class="tag-checkbox"> 👂 听力差</label>
+                        <label><input type="checkbox" value="special" class="tag-checkbox"> ⭐ 特殊照顾</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <textarea id="studentNote" rows="2" placeholder="其他说明..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="app.closeModal('studentModal')">取消</button>
+                <button class="btn btn-primary" onclick="app.saveStudent()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 保存方案模态框 -->
+    <div class="modal" id="savePlanModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>保存座位方案</h3>
+                <button class="close-btn" onclick="app.closeModal('savePlanModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>方案名称 *</label>
+                    <input type="text" id="planName" placeholder="如：期中考试后排座">
+                </div>
+                <div class="form-group">
+                    <label>排座方式</label>
+                    <select id="planType">
+                        <option value="manual">手动排座</option>
+                        <option value="random">随机排座</option>
+                        <option value="score">按成绩排座</option>
+                        <option value="gender">男女交替</option>
+                        <option value="height">按身高排座</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="app.closeModal('savePlanModal')">取消</button>
+                <button class="btn btn-primary" onclick="app.confirmSavePlan()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div class="modal" id="importModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>导入学生数据</h3>
+                <button class="close-btn" onclick="app.closeModal('importModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <p>拖拽 Excel 文件到此处，或 <span class="link">点击上传</span></p>
+                    <p class="upload-hint">支持 .xlsx, .xls 格式</p>
+                    <input type="file" id="importFile" accept=".xlsx,.xls" style="display: none;">
+                </div>
+                <div class="template-download">
+                    <a href="#" onclick="app.downloadTemplate()">📥 下载导入模板</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div id="toast-container"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
