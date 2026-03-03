@@ -557,7 +557,52 @@ app.post('/api/print', async (req, res) => {
     }
     
     try {
-        const { assignments, layout, planName = '座位表', className = '' } = req.body;
+        let { assignments, layout, planName = '座位表', className = '', plan_id } = req.body;
+        
+        // 如果提供了 plan_id，从数据库获取数据
+        if (plan_id && !assignments) {
+            const [plans] = await pool.query(
+                `SELECT p.*, l.rows_count, l.cols_count, l.aisle_positions
+                 FROM seat_plans p 
+                 LEFT JOIN classroom_layouts l ON p.layout_id = l.id 
+                 WHERE p.id = ?`,
+                [plan_id]
+            );
+            
+            if (plans.length === 0) {
+                return res.status(404).json({ success: false, message: '方案不存在' });
+            }
+            
+            const plan = plans[0];
+            planName = planName || plan.name;
+            layout = {
+                rows_count: plan.rows_count,
+                cols_count: plan.cols_count,
+                aisle_positions: plan.aisle_positions
+            };
+            
+            // 获取座位分配
+            const [assignmentsData] = await pool.query(
+                `SELECT sa.row_num, sa.col_num, s.name, s.student_no, s.gender, s.height, s.\`rank\`, s.tags
+                 FROM seat_assignments sa 
+                 JOIN students s ON sa.student_id = s.id 
+                 WHERE sa.plan_id = ?`,
+                [plan_id]
+            );
+            
+            assignments = assignmentsData.map(a => ({
+                row_num: parseInt(a.row_num, 10),
+                col_num: parseInt(a.col_num, 10),
+                student: {
+                    name: a.name,
+                    student_no: a.student_no,
+                    gender: a.gender,
+                    height: a.height,
+                    rank: a.rank,
+                    tags: a.tags
+                }
+            }));
+        }
         
         if (!assignments || !layout) {
             return res.status(400).json({ success: false, message: '缺少排座数据' });
@@ -573,14 +618,30 @@ app.post('/api/print', async (req, res) => {
         });
         
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
         
-        // 生成PDF
+        // 设置视口为 A4 横向尺寸 (297mm x 210mm at 96 DPI)
+        await page.setViewport({
+            width: 1123,  // 297mm in pixels at 96 DPI
+            height: 794,  // 210mm in pixels at 96 DPI
+            deviceScaleFactor: 1.5  // 提高清晰度
+        });
+        
+        await page.setContent(html, { 
+            waitUntil: ['networkidle0', 'domcontentloaded'],
+            timeout: 30000
+        });
+        
+        // 等待字体和样式加载完成
+        await page.evaluateHandle('document.fonts.ready');
+        
+        // 生成PDF - 确保在一页内
         const pdf = await page.pdf({
-            format: 'A4',
-            landscape: true,
+            width: '297mm',
+            height: '210mm',
             printBackground: true,
-            margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' }
+            preferCSSPageSize: true,
+            scale: 1.5,
+            margin: { top: '0', right: '0', bottom: '0', left: '0' }
         });
         
         await browser.close();
@@ -597,10 +658,25 @@ app.post('/api/print', async (req, res) => {
     }
 });
 
-// 生成座位表PDF的HTML模板
+// 生成座位表PDF的HTML模板 - 优化版：确保在一页内显示
 function generateSeatPDFHTML(assignments, layout, planName, className) {
     const rows = layout.rows_count || 7;
     const cols = layout.cols_count || 7;
+    
+    // 根据行列数动态计算座位大小，确保适应 A4 横向页面
+    // A4 横向尺寸约为 297mm x 210mm，减去边距后可用约 280mm x 190mm
+    const maxWidth = 280;  // mm
+    const maxHeight = 150; // mm，留出空间给标题、讲台和图例
+    
+    // 计算最佳座位尺寸
+    const gap = 3; // mm
+    const cellWidth = Math.floor((maxWidth - (cols - 1) * gap) / cols);
+    const cellHeight = Math.floor((maxHeight - (rows - 1) * gap) / rows);
+    const cellSize = Math.min(cellWidth, cellHeight, 35); // 最大35mm，确保不会太大
+    
+    // 计算字体大小
+    const nameFontSize = Math.max(8, Math.min(12, Math.floor(cellSize / 3)));
+    const infoFontSize = Math.max(6, Math.min(9, Math.floor(cellSize / 4)));
     
     // 构建座位网格
     let seatGridHTML = '';
@@ -616,7 +692,7 @@ function generateSeatPDFHTML(assignments, layout, planName, className) {
                     <div class="seat-cell occupied" style="border-color: ${genderColor}">
                         <div class="seat-name">${student.name}</div>
                         <div class="seat-no">${student.student_no || ''}</div>
-                        <div class="seat-info">${student.gender || ''} ${student.rank ? '排名' + student.rank : ''}</div>
+                        <div class="seat-info">${student.gender || ''}${student.rank ? ' 排' + student.rank : ''}</div>
                     </div>
                 `;
             } else {
@@ -637,163 +713,207 @@ function generateSeatPDFHTML(assignments, layout, planName, className) {
     <meta charset="UTF-8">
     <title>${planName}</title>
     <style>
+        @page {
+            size: A4 landscape;
+            margin: 5mm;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
         body {
             font-family: "Microsoft YaHei", "SimHei", sans-serif;
-            padding: 20px;
+            padding: 5mm;
             background: #fff;
+            display: flex;
+            flex-direction: column;
+        }
+        .container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
         .header {
             text-align: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 3px solid #4a90d9;
+            padding-bottom: 5mm;
+            border-bottom: 2px solid #4a90d9;
+            flex-shrink: 0;
         }
         .title {
-            font-size: 32px;
+            font-size: 22px;
             font-weight: bold;
             color: #333;
-            margin-bottom: 10px;
+            margin-bottom: 2mm;
         }
         .subtitle {
-            font-size: 18px;
+            font-size: 14px;
             color: #666;
         }
         .info {
-            margin-top: 15px;
-            font-size: 14px;
+            margin-top: 2mm;
+            font-size: 10px;
             color: #999;
         }
         .classroom {
-            margin: 30px 0;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 3mm 0;
         }
         .podium {
             text-align: center;
-            padding: 15px;
+            padding: 4mm 8mm;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            font-size: 24px;
+            font-size: 14px;
             font-weight: bold;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            margin: 0 auto 5mm auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            width: fit-content;
+            min-width: 80mm;
         }
         .seat-grid {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: ${gap}mm;
+            align-items: center;
         }
         .seat-row {
             display: flex;
-            gap: 12px;
+            gap: ${gap}mm;
             justify-content: center;
         }
         .seat-cell {
-            width: 100px;
-            height: 80px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
+            width: ${cellSize}mm;
+            height: ${cellSize}mm;
+            border: 1px solid #ddd;
+            border-radius: 3px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             background: white;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
         }
         .seat-cell.occupied {
             background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-            border-width: 3px;
+            border-width: 2px;
         }
         .seat-cell.empty {
             background: #f8f9fa;
             border-style: dashed;
         }
         .seat-name {
-            font-size: 18px;
+            font-size: ${nameFontSize}px;
             font-weight: bold;
             color: #333;
-            margin-bottom: 4px;
+            line-height: 1.2;
         }
         .seat-no {
-            font-size: 12px;
+            font-size: ${infoFontSize}px;
             color: #666;
-            margin-bottom: 2px;
+            line-height: 1.2;
         }
         .seat-info {
-            font-size: 11px;
+            font-size: ${infoFontSize}px;
             color: #999;
+            line-height: 1.2;
         }
         .seat-empty {
-            font-size: 16px;
+            font-size: ${nameFontSize}px;
             color: #ccc;
         }
-        .footer {
-            margin-top: 30px;
-            padding-top: 20px;
+        .footer-section {
+            flex-shrink: 0;
+            padding-top: 3mm;
             border-top: 1px solid #eee;
-            text-align: center;
-            font-size: 12px;
-            color: #999;
         }
         .legend {
-            margin-top: 20px;
             display: flex;
             justify-content: center;
-            gap: 30px;
+            gap: 20px;
+            margin-bottom: 2mm;
         }
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 14px;
+            gap: 5px;
+            font-size: 10px;
             color: #666;
         }
         .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            border: 2px solid;
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            border: 1px solid;
         }
         .legend-male { background: #e6f7f5; border-color: #4ecdc4; }
         .legend-female { background: #ffe6f0; border-color: #ff6b9d; }
         .legend-empty { background: #f8f9fa; border-color: #ddd; border-style: dashed; }
+        .footer {
+            text-align: center;
+            font-size: 9px;
+            color: #999;
+        }
         @media print {
-            body { padding: 10px; }
-            .seat-cell { page-break-inside: avoid; }
+            body { 
+                padding: 5mm;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .seat-row { 
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+            .seat-cell {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="title">${planName}</div>
-        ${className ? `<div class="subtitle">${className}</div>` : ''}
-        <div class="info">生成时间：${new Date().toLocaleString('zh-CN')} | 座位布局：${rows}行 × ${cols}列</div>
-    </div>
-    
-    <div class="classroom">
-        <div class="podium">📋 讲 台</div>
-        <div class="seat-grid">
-            ${seatGridHTML}
+    <div class="container">
+        <div class="header">
+            <div class="title">${planName}</div>
+            ${className ? `<div class="subtitle">${className}</div>` : ''}
+            <div class="info">生成时间：${new Date().toLocaleString('zh-CN')} | 座位布局：${rows}行 × ${cols}列</div>
         </div>
-    </div>
-    
-    <div class="legend">
-        <div class="legend-item">
-            <div class="legend-color legend-male"></div>
-            <span>男生</span>
+        
+        <div class="classroom">
+            <div class="podium">📋 讲 台</div>
+            <div class="seat-grid">
+                ${seatGridHTML}
+            </div>
         </div>
-        <div class="legend-item">
-            <div class="legend-color legend-female"></div>
-            <span>女生</span>
+        
+        <div class="footer-section">
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color legend-male"></div>
+                    <span>男生</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color legend-female"></div>
+                    <span>女生</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color legend-empty"></div>
+                    <span>空座位</span>
+                </div>
+            </div>
+            
+            <div class="footer">
+                学生智能排座系统生成 | https://chenxing.live
+            </div>
         </div>
-        <div class="legend-item">
-            <div class="legend-color legend-empty"></div>
-            <span>空座位</span>
-        </div>
-    </div>
-    
-    <div class="footer">
-        学生智能排座系统生成 | https://chenxing.live
     </div>
 </body>
 </html>
