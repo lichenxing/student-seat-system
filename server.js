@@ -396,24 +396,12 @@ function arrangeByHeight(students, layout) {
 
 // 分配座位到网格（从前排到后排，每行从左到右）
 function assignSeats(students, layout) {
-    // aisle_positions 可能是 JSON 字符串或已解析的数组
-    let aislePositions = layout.aisle_positions || [];
-    if (typeof aislePositions === 'string') {
-        try {
-            aislePositions = JSON.parse(aislePositions);
-        } catch (e) {
-            aislePositions = [];
-        }
-    }
-    
     const assignments = [];
     let studentIdx = 0;
     
     for (let row = 1; row <= layout.rows_count && studentIdx < students.length; row++) {
         for (let col = 1; col <= layout.cols_count && studentIdx < students.length; col++) {
-            // 跳过过道位置
-            if (aislePositions.includes(col)) continue;
-            
+            // 不预留过道，所有列都用于排座
             assignments.push({
                 student_id: students[studentIdx].id,
                 row_num: row,
