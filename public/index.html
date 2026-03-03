@@ -42,9 +42,9 @@
                                     <span>🎲 随机排座</span>
                                 </label>
                                 <label class="radio-label">
-                                    <input type="radio" name="arrangeType" value="score">
-                                    <span>📊 按成绩排座</span>
-                                    <small>成绩好的优先前排</small>
+                                    <input type="radio" name="arrangeType" value="rank">
+                                    <span>📊 按排名排座</span>
+                                    <small>排名靠前的优先前排</small>
                                 </label>
                                 <label class="radio-label">
                                     <input type="radio" name="arrangeType" value="gender">
@@ -145,7 +145,7 @@
                                     <th>姓名</th>
                                     <th>性别</th>
                                     <th>身高</th>
-                                    <th>成绩</th>
+                                    <th>排名</th>
                                     <th>标签</th>
                                     <th>备注</th>
                                     <th>操作</th>
@@ -205,8 +205,8 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>成绩</label>
-                    <input type="number" id="studentScore" placeholder="如: 85.5" step="0.1" min="0" max="100">
+                    <label>排名</label>
+                    <input type="number" id="studentRank" placeholder="如: 1" min="1">
                 </div>
                 <div class="form-group">
                     <label>标签</label>
@@ -246,7 +246,7 @@
                     <select id="planType">
                         <option value="manual">手动排座</option>
                         <option value="random">随机排座</option>
-                        <option value="score">按成绩排座</option>
+                        <option value="rank">按排名排座</option>
                         <option value="gender">男女交替</option>
                         <option value="height">按身高排座</option>
                     </select>

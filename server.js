@@ -104,12 +104,12 @@ app.get('/api/students/:id', async (req, res) => {
 // 添加学生
 app.post('/api/students', async (req, res) => {
     try {
-        const { name, student_no, gender, height, score, tags, note } = req.body;
+        const { name, student_no, gender, height, rank, tags, note } = req.body;
         
         const [result] = await pool.query(
-            `INSERT INTO students (name, student_no, gender, height, score, tags, note) 
+            `INSERT INTO students (name, student_no, gender, height, \`rank\`, tags, note) 
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [name, student_no, gender, height, score, JSON.stringify(tags || []), note]
+            [name, student_no, gender, height, rank, JSON.stringify(tags || []), note]
         );
         
         res.json({ success: true, data: { id: result.insertId }, message: '学生添加成功' });
@@ -121,12 +121,12 @@ app.post('/api/students', async (req, res) => {
 // 更新学生
 app.put('/api/students/:id', async (req, res) => {
     try {
-        const { name, student_no, gender, height, score, tags, note } = req.body;
+        const { name, student_no, gender, height, rank, tags, note } = req.body;
         
         await pool.query(
             `UPDATE students SET name = ?, student_no = ?, gender = ?, height = ?, 
-             score = ?, tags = ?, note = ? WHERE id = ?`,
-            [name, student_no, gender, height, score, JSON.stringify(tags || []), note, req.params.id]
+             \`rank\` = ?, tags = ?, note = ? WHERE id = ?`,
+            [name, student_no, gender, height, rank, JSON.stringify(tags || []), note, req.params.id]
         );
         
         res.json({ success: true, message: '学生信息更新成功' });
@@ -150,12 +150,12 @@ app.post('/api/students/batch', async (req, res) => {
     try {
         const { students } = req.body;
         const values = students.map(s => [
-            s.name, s.student_no, s.gender, s.height, s.score, 
+            s.name, s.student_no, s.gender, s.height, s.rank, 
             JSON.stringify(s.tags || []), s.note
         ]);
         
         const [result] = await pool.query(
-            `INSERT INTO students (name, student_no, gender, height, score, tags, note) 
+            `INSERT INTO students (name, student_no, gender, height, \`rank\`, tags, note) 
              VALUES ?`,
             [values]
         );
@@ -201,7 +201,7 @@ app.get('/api/plans/:id', async (req, res) => {
         
         // 获取座位分配
         const [assignments] = await pool.query(
-            `SELECT sa.*, s.name, s.student_no, s.gender, s.height, s.score, s.tags, s.note
+            `SELECT sa.*, s.name, s.student_no, s.gender, s.height, s.\`rank\`, s.tags, s.note
              FROM seat_assignments sa 
              JOIN students s ON sa.student_id = s.id 
              WHERE sa.plan_id = ?
@@ -337,8 +337,8 @@ app.post('/api/arrange', async (req, res) => {
             case 'random':
                 arranged = arrangeRandom(students, layout);
                 break;
-            case 'score':
-                arranged = arrangeByScore(students, layout);
+            case 'rank':
+                arranged = arrangeByRank(students, layout);
                 break;
             case 'gender':
                 arranged = arrangeByGender(students, layout);
@@ -363,10 +363,10 @@ function arrangeRandom(students, layout) {
     return assignSeats(shuffled, layout);
 }
 
-// 按成绩排座（成绩好的优先前排中间）
-function arrangeByScore(students, layout) {
-    // 按成绩降序
-    const sorted = [...students].sort((a, b) => (b.score || 0) - (a.score || 0));
+// 按排名排座（排名靠前的优先前排中间）
+function arrangeByRank(students, layout) {
+    // 按排名升序（排名数字小的在前）
+    const sorted = [...students].sort((a, b) => (a.rank || 999) - (b.rank || 999));
     return assignSeats(sorted, layout);
 }
 
@@ -396,13 +396,24 @@ function arrangeByHeight(students, layout) {
 
 // 分配座位到网格（从前排到后排，每行从左到右）
 function assignSeats(students, layout) {
-    const aislePositions = JSON.parse(layout.aisle_positions || '[]');
+    // aisle_positions 可能是 JSON 字符串或已解析的数组
+    let aislePositions = layout.aisle_positions || [];
+    if (typeof aislePositions === 'string') {
+        try {
+            aislePositions = JSON.parse(aislePositions);
+        } catch (e) {
+            aislePositions = [];
+        }
+    }
+    
     const assignments = [];
     let studentIdx = 0;
     
     for (let row = 1; row <= layout.rows_count && studentIdx < students.length; row++) {
         for (let col = 1; col <= layout.cols_count && studentIdx < students.length; col++) {
-            // 跳过过道位置（简化处理，这里假设过道是列之间的间隔）
+            // 跳过过道位置
+            if (aislePositions.includes(col)) continue;
+            
             assignments.push({
                 student_id: students[studentIdx].id,
                 row_num: row,
@@ -443,7 +454,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
                     student_no: String(row['学号'] || row['number'] || row['Number'] || ''),
                     gender: row['性别'] || row['gender'] || row['Gender'] || null,
                     height: parseInt(row['身高'] || row['height'] || row['Height']) || null,
-                    score: parseFloat(row['成绩'] || row['score'] || row['Score']) || null,
+                    rank: parseInt(row['排名'] || row['rank'] || row['Rank']) || null,
                     tags: [],
                     note: String(row['备注'] || row['note'] || row['Note'] || '')
                 });
@@ -456,12 +467,12 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
         // 批量插入
         if (students.length > 0) {
             const values = students.map(s => [
-                s.name, s.student_no, s.gender, s.height, s.score,
+                s.name, s.student_no, s.gender, s.height, s.rank,
                 JSON.stringify(s.tags), s.note
             ]);
             
             const [result] = await pool.query(
-                `INSERT INTO students (name, student_no, gender, height, score, tags, note) VALUES ?`,
+                `INSERT INTO students (name, student_no, gender, height, \`rank\`, tags, note) VALUES ?`,
                 [values]
             );
             
@@ -483,16 +494,26 @@ app.get('/api/export', async (req, res) => {
     try {
         const [students] = await pool.query('SELECT * FROM students ORDER BY id');
         
-        // 转换数据
-        const data = students.map(s => ({
-            '姓名': s.name,
-            '学号': s.student_no,
-            '性别': s.gender,
-            '身高': s.height,
-            '成绩': s.score,
-            '标签': JSON.parse(s.tags || '[]').join(', '),
-            '备注': s.note
-        }));
+        // 转换数据 - tags 从 MySQL JSON 字段读取时已经是数组
+        const data = students.map(s => {
+            let tags = s.tags || [];
+            if (typeof tags === 'string') {
+                try {
+                    tags = JSON.parse(tags);
+                } catch (e) {
+                    tags = [];
+                }
+            }
+            return {
+                '姓名': s.name,
+                '学号': s.student_no,
+                '性别': s.gender,
+                '身高': s.height,
+                '排名': s.rank,
+                '标签': Array.isArray(tags) ? tags.join(', ') : '',
+                '备注': s.note
+            };
+        });
         
         // 创建工作簿
         const worksheet = xlsx.utils.json_to_sheet(data);

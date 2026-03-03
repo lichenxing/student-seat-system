@@ -15,6 +15,20 @@ class SeatApp {
         this.init();
     }
     
+    // 安全解析 tags，处理已解析的数组或 JSON 字符串
+    parseTags(tags) {
+        if (!tags) return [];
+        if (Array.isArray(tags)) return tags;
+        if (typeof tags === 'string') {
+            try {
+                return JSON.parse(tags);
+            } catch (e) {
+                return [];
+            }
+        }
+        return [];
+    }
+    
     async init() {
         await this.loadStudents();
         this.initTabs();
@@ -86,7 +100,7 @@ class SeatApp {
                 
                 if (student) {
                     const genderClass = student.gender === '女' ? 'female' : 'male';
-                    const tags = JSON.parse(student.tags || '[]');
+                    const tags = this.parseTags(student.tags);
                     const tagIcon = tags.includes('naughty') ? '😈' : tags.includes('vision') ? '👓' : '';
                     
                     html += `
@@ -99,7 +113,7 @@ class SeatApp {
                             <span class="seat-number">${seatNum}</span>
                             ${tagIcon ? `<span class="seat-tag">${tagIcon}</span>` : ''}
                             <span class="seat-name">${student.name}</span>
-                            <span class="seat-info">${student.gender === '女' ? '♀' : '♂'} ${student.height || '--'}cm</span>
+                            <span class="seat-info">${student.gender === '女' ? '♀' : '♂'} ${student.height || '--'}cm 排名:${student.rank || '--'}</span>
                         </div>
                     `;
                 } else {
@@ -138,7 +152,7 @@ class SeatApp {
         pool.innerHTML = unassigned.map(student => {
             const genderClass = student.gender === '女' ? 'female' : '';
             const initials = student.name.charAt(0);
-            const tags = JSON.parse(student.tags || '[]');
+            const tags = this.parseTags(student.tags);
             const tagIcons = tags.map(t => {
                 const map = { naughty: '😈', vision: '👓', hearing: '👂', special: '⭐' };
                 return map[t] || '';
@@ -149,7 +163,7 @@ class SeatApp {
                     <div class="student-avatar ${genderClass}">${initials}</div>
                     <div class="student-info">
                         <div class="student-name">${student.name}</div>
-                        <div class="student-meta">${student.student_no || '--'} · ${student.gender || '--'} · ${student.height || '--'}cm</div>
+                        <div class="student-meta">${student.student_no || '--'} · ${student.gender || '--'} · 排名:${student.rank || '--'}</div>
                         ${tagIcons ? `<div class="student-tags">${tagIcons}</div>` : ''}
                     </div>
                 </div>
@@ -170,7 +184,7 @@ class SeatApp {
         }
         
         tbody.innerHTML = this.students.map(student => {
-            const tags = JSON.parse(student.tags || '[]');
+            const tags = this.parseTags(student.tags);
             const tagMap = { naughty: '😈 调皮', vision: '👓 近视', hearing: '👂 听力', special: '⭐ 特殊' };
             const tagLabels = tags.map(t => tagMap[t] || t).join(' ');
             
@@ -180,7 +194,7 @@ class SeatApp {
                     <td><strong>${student.name}</strong></td>
                     <td>${student.gender || '--'}</td>
                     <td>${student.height ? student.height + 'cm' : '--'}</td>
-                    <td>${student.score ? student.score : '--'}</td>
+                    <td>${student.rank ? '第' + student.rank + '名' : '--'}</td>
                     <td>${tagLabels || '--'}</td>
                     <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${student.note || '--'}</td>
                     <td>
@@ -209,7 +223,7 @@ class SeatApp {
             const typeMap = {
                 manual: '手动排座',
                 random: '随机排座',
-                score: '按成绩排座',
+                rank: '按排名排座',
                 gender: '男女交替',
                 height: '按身高排座'
             };
@@ -446,10 +460,10 @@ class SeatApp {
             document.getElementById('studentNo').value = student.student_no || '';
             document.getElementById('studentGender').value = student.gender || '';
             document.getElementById('studentHeight').value = student.height || '';
-            document.getElementById('studentScore').value = student.score || '';
+            document.getElementById('studentRank').value = student.rank || '';
             document.getElementById('studentNote').value = student.note || '';
             
-            const tags = JSON.parse(student.tags || '[]');
+            const tags = this.parseTags(student.tags);
             document.querySelectorAll('.tag-checkbox').forEach(cb => {
                 cb.checked = tags.includes(cb.value);
             });
@@ -460,7 +474,7 @@ class SeatApp {
             document.getElementById('studentNo').value = '';
             document.getElementById('studentGender').value = '';
             document.getElementById('studentHeight').value = '';
-            document.getElementById('studentScore').value = '';
+            document.getElementById('studentRank').value = '';
             document.getElementById('studentNote').value = '';
             document.querySelectorAll('.tag-checkbox').forEach(cb => cb.checked = false);
         }
@@ -484,7 +498,7 @@ class SeatApp {
             student_no: document.getElementById('studentNo').value.trim(),
             gender: document.getElementById('studentGender').value,
             height: parseInt(document.getElementById('studentHeight').value) || null,
-            score: parseFloat(document.getElementById('studentScore').value) || null,
+            rank: parseInt(document.getElementById('studentRank').value) || null,
             tags,
             note: document.getElementById('studentNote').value.trim()
         };
