@@ -9,7 +9,7 @@ class SeatApp {
         this.students = [];
         this.currentPlan = null;
         this.assignments = []; // {student_id, row_num, col_num, student}
-        this.layout = { rows: 7, cols: 8 };
+        this.layout = { rows: 7, cols: 7 };
         this.draggedStudent = null;
         
         this.init();
