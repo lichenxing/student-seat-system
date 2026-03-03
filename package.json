@@ -9,18 +9,24 @@
     "init-db": "node scripts/init-db.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "xlsx": "^0.18.5",
-    "uuid": "^9.0.0"
+    "mysql2": "^3.6.5",
+    "puppeteer": "^24.37.5",
+    "uuid": "^9.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
   },
-  "keywords": ["seat", "arrangement", "student", "classroom"],
+  "keywords": [
+    "seat",
+    "arrangement",
+    "student",
+    "classroom"
+  ],
   "author": "Teacher",
   "license": "MIT"
 }

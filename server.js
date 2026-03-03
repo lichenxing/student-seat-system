@@ -14,6 +14,14 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Puppeteer for PDF generation
+let puppeteer;
+try {
+    puppeteer = require('puppeteer');
+} catch (e) {
+    console.warn('⚠️ Puppeteer 未安装，PDF功能将不可用');
+}
+
 // CORS 配置 - 支持域名访问
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',') 
@@ -540,6 +548,257 @@ app.get('/api/layouts', async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+
+// ==================== PDF打印 API ====================
+
+app.post('/api/print', async (req, res) => {
+    if (!puppeteer) {
+        return res.status(500).json({ success: false, message: 'PDF生成功能未启用，请安装puppeteer' });
+    }
+    
+    try {
+        const { assignments, layout, planName = '座位表', className = '' } = req.body;
+        
+        if (!assignments || !layout) {
+            return res.status(400).json({ success: false, message: '缺少排座数据' });
+        }
+        
+        // 生成座位表HTML
+        const html = generateSeatPDFHTML(assignments, layout, planName, className);
+        
+        // 启动浏览器
+        const browser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        
+        // 生成PDF
+        const pdf = await page.pdf({
+            format: 'A4',
+            landscape: true,
+            printBackground: true,
+            margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' }
+        });
+        
+        await browser.close();
+        
+        // 发送PDF
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(planName)}_${new Date().toISOString().split('T')[0]}.pdf"`);
+        res.setHeader('Content-Length', pdf.length);
+        res.end(pdf);
+        
+    } catch (error) {
+        console.error('PDF生成失败:', error);
+        res.status(500).json({ success: false, message: 'PDF生成失败: ' + error.message });
+    }
+});
+
+// 生成座位表PDF的HTML模板
+function generateSeatPDFHTML(assignments, layout, planName, className) {
+    const rows = layout.rows_count || 7;
+    const cols = layout.cols_count || 7;
+    
+    // 构建座位网格
+    let seatGridHTML = '';
+    for (let row = 1; row <= rows; row++) {
+        seatGridHTML += '<div class="seat-row">';
+        for (let col = 1; col <= cols; col++) {
+            const assignment = assignments.find(a => a.row_num === row && a.col_num === col);
+            const student = assignment?.student;
+            
+            if (student) {
+                const genderColor = student.gender === '女' ? '#ff6b9d' : '#4ecdc4';
+                seatGridHTML += `
+                    <div class="seat-cell occupied" style="border-color: ${genderColor}">
+                        <div class="seat-name">${student.name}</div>
+                        <div class="seat-no">${student.student_no || ''}</div>
+                        <div class="seat-info">${student.gender || ''} ${student.rank ? '排名' + student.rank : ''}</div>
+                    </div>
+                `;
+            } else {
+                seatGridHTML += `
+                    <div class="seat-cell empty">
+                        <div class="seat-empty">空</div>
+                    </div>
+                `;
+            }
+        }
+        seatGridHTML += '</div>';
+    }
+    
+    return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>${planName}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "Microsoft YaHei", "SimHei", sans-serif;
+            padding: 20px;
+            background: #fff;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #4a90d9;
+        }
+        .title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #666;
+        }
+        .info {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #999;
+        }
+        .classroom {
+            margin: 30px 0;
+        }
+        .podium {
+            text-align: center;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .seat-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .seat-row {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        .seat-cell {
+            width: 100px;
+            height: 80px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .seat-cell.occupied {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+            border-width: 3px;
+        }
+        .seat-cell.empty {
+            background: #f8f9fa;
+            border-style: dashed;
+        }
+        .seat-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        .seat-no {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 2px;
+        }
+        .seat-info {
+            font-size: 11px;
+            color: #999;
+        }
+        .seat-empty {
+            font-size: 16px;
+            color: #ccc;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+        }
+        .legend {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 2px solid;
+        }
+        .legend-male { background: #e6f7f5; border-color: #4ecdc4; }
+        .legend-female { background: #ffe6f0; border-color: #ff6b9d; }
+        .legend-empty { background: #f8f9fa; border-color: #ddd; border-style: dashed; }
+        @media print {
+            body { padding: 10px; }
+            .seat-cell { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title">${planName}</div>
+        ${className ? `<div class="subtitle">${className}</div>` : ''}
+        <div class="info">生成时间：${new Date().toLocaleString('zh-CN')} | 座位布局：${rows}行 × ${cols}列</div>
+    </div>
+    
+    <div class="classroom">
+        <div class="podium">📋 讲 台</div>
+        <div class="seat-grid">
+            ${seatGridHTML}
+        </div>
+    </div>
+    
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color legend-male"></div>
+            <span>男生</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color legend-female"></div>
+            <span>女生</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color legend-empty"></div>
+            <span>空座位</span>
+        </div>
+    </div>
+    
+    <div class="footer">
+        学生智能排座系统生成 | https://chenxing.live
+    </div>
+</body>
+</html>
+    `;
+}
 
 // ==================== 启动服务 ====================
 

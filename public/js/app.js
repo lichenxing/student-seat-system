@@ -714,6 +714,60 @@ class SeatApp {
         window.open(`${this.apiBase}/export`, '_blank');
     }
     
+    // ==================== 打印座位表 ====================
+    
+    async printSeatTable() {
+        if (this.assignments.length === 0) {
+            this.showToast('请先排座再打印', 'error');
+            return;
+        }
+        
+        const planName = prompt('请输入座位表标题（如：三年级一班座位表）：', '座位表') || '座位表';
+        const className = prompt('请输入班级名称（可选）：', '') || '';
+        
+        this.showToast('正在生成PDF，请稍候...', 'success');
+        
+        try {
+            // 准备打印数据
+            const printData = {
+                assignments: this.assignments.map(a => ({
+                    row_num: a.row_num,
+                    col_num: a.col_num,
+                    student: {
+                        name: a.student.name,
+                        student_no: a.student.student_no,
+                        gender: a.student.gender,
+                        rank: a.student.rank
+                    }
+                })),
+                layout: this.layout,
+                planName: planName,
+                className: className
+            };
+            
+            // 调用打印API
+            const res = await axios.post(`${this.apiBase}/print`, printData, {
+                responseType: 'blob'
+            });
+            
+            // 下载PDF
+            const blob = new Blob([res.data], { type: 'application/pdf' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${planName}_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            
+            this.showToast('PDF生成成功！', 'success');
+        } catch (error) {
+            console.error('打印失败:', error);
+            this.showToast('打印失败：' + (error.response?.data?.message || error.message), 'error');
+        }
+    }
+    
     downloadTemplate() {
         // 创建简单的 Excel 模板
         const template = [
